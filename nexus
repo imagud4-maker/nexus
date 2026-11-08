@@ -1,0 +1,263 @@
+
+{
+  "licenses": [
+    {
+      "hash": "28d93dfb88b29dccc9228139c4ee576cd46ff19241f5d94e2e12f80d3a49edcd",
+      "plan": "WEEK",
+      "days": 7,
+      "createdAt": 0,
+      "activatedAt": null,
+      "expiresAt": null
+    },
+    {
+      "hash": "112ed91501b185be881a68dad6992b64edd61603cfa94cd6cfea614d6e4797c2",
+      "plan": "MONTH",
+      "days": 30,
+      "createdAt": 0,
+      "activatedAt": null,
+      "expiresAt": null
+    }
+  ],
+  "sessions": {}
+}
+{
+  "name": "nexus-osint",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "express-rate-limit": "^7.5.0"
+  }
+}
+# NEXUS OSINT — TEAM ЯЙЦЕР0ЖДЕНЫЕ
+
+Full-stack Node.js dashboard with a purple cyber theme, exactly 20 visible modules, and server-validated 7-day / 30-day licenses.
+
+## Publish it on the internet (Render)
+
+This project is configured for Render using `render.yaml`. You do not need to keep your computer running after deployment.
+
+1. Create a GitHub account and a new **private** repository.
+2. Upload all files and folders from this project to that repository (keep `render.yaml` in the root).
+3. In Render, choose **New → Blueprint**, connect the repository, and approve the services described by `render.yaml`.
+4. Wait for the deployment to finish. Render will give you an address similar to `https://nexus-osint.onrender.com`. Share that address with users.
+5. In the Render service settings, keep `ADMIN_SECRET` private. Do not post it or put it in frontend files.
+
+The included Render configuration uses a small persistent disk for license data. Persistent disks require a paid Render web-service plan. If you choose a free/ephemeral host instead, license records may be lost after a restart or redeploy.
+
+## Run locally (optional)
+
+1. Install Node.js 18 or newer.
+2. In this folder run `npm install`.
+3. Set a strong `ADMIN_SECRET` environment variable.
+   - PowerShell: `$env:ADMIN_SECRET="your-long-random-secret"`
+   - macOS/Linux: `export ADMIN_SECRET="your-long-random-secret"`
+4. Run `npm start`.
+5. Open http://localhost:3000
+
+## License keys
+
+The keys listed in `licenses.json` are demo keys for testing. Do not publish demo keys if access should be restricted. Keys activate for 7 or 30 days from first activation. Create new keys with the admin endpoint after deployment.
+
+## Create more licenses
+
+Send a POST request to `/api/admin/licenses` with JSON `{"days":7}` or `{"days":30}` and header `x-admin-secret: YOUR_ADMIN_SECRET`. Example PowerShell (replace the URL with your deployed site address):
+
+```powershell
+$site = "https://YOUR-SITE.onrender.com"
+Invoke-RestMethod -Method Post -Uri "$site/api/admin/licenses" -Headers @{"x-admin-secret"="YOUR_ADMIN_SECRET"} -ContentType "application/json" -Body '{"days":7}'
+```
+
+The server returns a new key once. Store it securely and share it only with its intended user.
+
+## Included 20 modules
+
+Domain Intelligence; DNS Lookup; IP Information; WHOIS/RDAP Lookup; SSL Certificate Search; Website Headers; URL Parser; Redirect Review; Robots.txt Viewer; Sitemap Finder; Metadata Review; Technology Clues; Public Web Search; Public GitHub Search; Email Domain Check; Subdomain Certificate Search; Certificate Transparency; Security Headers Guide; Hash Calculator; OSINT Report Builder.
+
+## Safety / scope
+
+This is a public-source research dashboard, not a people-tracking or intrusion tool. It does not scan ports, exploit systems, access private accounts, reveal passwords, or collect private personal data. URL review modules provide safe links for manual review rather than server-side fetching of arbitrary targets. Use it lawfully and only with authorization.
+
+## Production notes
+
+- Keep `ADMIN_SECRET` private and rotate it if exposed.
+- Use HTTPS (Render provides it for the public service URL).
+- Keep persistent storage enabled for license records and back it up.
+- Protect `/api/admin/licenses`; never expose the admin secret in browser JavaScript.
+- A public website URL means anyone can reach the login page; valid license keys are still required to use the tools.
+
+services:
+  - type: web
+    name: nexus-osint
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: ADMIN_SECRET
+        generateValue: true
+      - key: LICENSE_DB_PATH
+        value: /var/data/licenses.json
+    disk:
+      name: nexus-license-data
+      mountPath: /var/data
+      sizeGB: 1
+
+const express = require("express");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const dns = require("node:dns").promises;
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const { URL } = require("node:url");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const ADMIN_SECRET = process.env.ADMIN_SECRET || "change-me-before-deploying";
+const DB = process.env.LICENSE_DB_PATH || path.join(__dirname, "licenses.json");
+
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(express.json({ limit: "16kb" }));
+app.use(rateLimit({ windowMs: 60_000, limit: 80 }));
+app.use(express.static(path.join(__dirname, "public")));
+
+const sha = s => crypto.createHash("sha256").update(s).digest("hex");
+const readDB = () => {
+  try { return JSON.parse(fs.readFileSync(DB, "utf8")); }
+  catch { return { licenses: [], sessions: {} }; }
+};
+const writeDB = db => fs.writeFileSync(DB, JSON.stringify(db, null, 2), { mode: 0o600 });
+
+function hostFrom(value) {
+  const raw = String(value || "").trim();
+  let host;
+  try {
+    host = raw.includes("://") ? new URL(raw).hostname : raw.split(/[/?#]/)[0].split(":")[0];
+  } catch { throw new Error("Please enter a valid domain or URL."); }
+  host = host.toLowerCase().replace(/\.$/, "");
+  if (!host || host.length > 253 || !/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/.test(host)) {
+    throw new Error("Please enter a valid public domain.");
+  }
+  if (["localhost", "localhost.localdomain"].includes(host) || !host.includes(".")) throw new Error("Private/local hostnames are not supported.");
+  return host;
+}
+function requireLicense(req, res, next) {
+  const bearer = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const db = readDB();
+  const session = db.sessions[bearer];
+  if (!session || session.expiresAt <= Date.now()) return res.status(401).json({ error: "Activate a valid license first." });
+  req.session = session;
+  next();
+}
+async function resolvePublic(host) {
+  const rows = await dns.lookup(host, { all: true });
+  if (!rows.length) throw new Error("No public DNS records found.");
+  // This app performs DNS lookups only; it does not connect to resolved IPs or scan networks.
+  return rows.map(r => r.address);
+}
+
+app.post("/api/activate", (req, res) => {
+  const key = String(req.body.key || "").trim();
+  const db = readDB();
+  const license = db.licenses.find(x => x.hash === sha(key));
+  if (!license) return res.status(403).json({ error: "Invalid license key." });
+  const now = Date.now();
+  if (!license.activatedAt) {
+    license.activatedAt = now;
+    license.expiresAt = now + license.days * 86400000;
+  }
+  if (license.expiresAt <= now) return res.status(403).json({ error: "This license has expired." });
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = Math.min(license.expiresAt, now + 24 * 60 * 60 * 1000);
+  db.sessions[token] = { expiresAt, plan: license.plan, licenseExpiresAt: license.expiresAt };
+  writeDB(db);
+  res.json({ token, plan: license.plan, expiresAt: license.expiresAt });
+});
+
+app.post("/api/admin/licenses", (req, res) => {
+  if (req.headers["x-admin-secret"] !== ADMIN_SECRET) return res.status(403).json({ error: "Admin authorization failed." });
+  const days = Number(req.body.days);
+  if (![7, 30].includes(days)) return res.status(400).json({ error: "Only 7-day and 30-day licenses can be created." });
+  const key = `NEXUS-${days === 7 ? "WEEK" : "MONTH"}-${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
+  const db = readDB();
+  db.licenses.push({ hash: sha(key), plan: days === 7 ? "WEEK" : "MONTH", days, createdAt: Date.now(), activatedAt: null, expiresAt: null });
+  writeDB(db);
+  res.json({ key, plan: days === 7 ? "WEEK" : "MONTH", durationDays: days });
+});
+
+app.get("/health", (req, res) => res.json({ ok: true, service: "NEXUS OSINT" }));
+
+app.get("/api/status", requireLicense, (req, res) => {
+  res.json({ ok: true, plan: req.session.plan, expiresAt: req.session.licenseExpiresAt });
+});
+
+app.get("/api/tool/:tool", requireLicense, async (req, res) => {
+  const tool = req.params.tool;
+  const q = String(req.query.q || "").trim();
+  try {
+    if (!q) throw new Error("Enter a search value.");
+    if (tool === "hash") {
+      const out = {};
+      for (const alg of ["sha256", "sha1", "md5"]) out[alg] = crypto.createHash(alg).update(q).digest("hex");
+      return res.json(out);
+    }
+    if (tool === "web") return res.json({ open: `https://www.google.com/search?q=${encodeURIComponent(q)}`, note: "Public web search link." });
+    if (tool === "github") return res.json({ open: `https://github.com/search?q=${encodeURIComponent(q)}&type=repositories`, note: "Public GitHub repository search." });
+    if (tool === "whois") {
+      const host = hostFrom(q);
+      return res.json({ domain: host, open: `https://lookup.icann.org/en/lookup?name=${encodeURIComponent(host)}` });
+    }
+    if (tool === "certs" || tool === "subdomains") {
+      const host = hostFrom(q);
+      return res.json({ domain: host, open: `https://crt.sh/?q=%25.${encodeURIComponent(host)}`, note: "Public certificate-transparency records. Review results manually." });
+    }
+    if (tool === "url") {
+      let u;
+      try { u = new URL(q.includes("://") ? q : `https://${q}`); } catch { throw new Error("Enter a valid URL."); }
+      if (!["http:", "https:"].includes(u.protocol) || u.username || u.password) throw new Error("Only public HTTP/HTTPS URLs are supported.");
+      return res.json({ hostname: u.hostname, protocol: u.protocol, path: u.pathname, open: u.toString(), note: "This module parses the URL locally; it does not visit or scan the target." });
+    }
+    if (tool === "email") {
+      const domain = q.includes("@") ? q.split("@").pop() : q;
+      const host = hostFrom(domain);
+      const mx = await dns.resolveMx(host).catch(() => []);
+      return res.json({ domain: host, hasMailExchange: mx.length > 0, mx });
+    }
+    const host = hostFrom(q);
+    if (tool === "dns") {
+      const results = {};
+      for (const [name, method] of [["A","resolve4"],["AAAA","resolve6"],["MX","resolveMx"],["NS","resolveNs"],["TXT","resolveTxt"],["CNAME","resolveCname"]]) {
+        try { results[name] = await dns[method](host); } catch { results[name] = []; }
+      }
+      return res.json({ domain: host, records: results });
+    }
+    if (tool === "ip") {
+      const addresses = await resolvePublic(host);
+      return res.json({ domain: host, addresses, note: "Public DNS resolution only. No IP scanning or geolocation of private individuals." });
+    }
+    if (tool === "domain") {
+      const addresses = await resolvePublic(host);
+      const ns = await dns.resolveNs(host).catch(() => []);
+      return res.json({ domain: host, addresses, nameservers: ns });
+    }
+    if (tool === "robots") return res.json({ open: `https://${host}/robots.txt`, note: "Opens the site's publicly published robots.txt file." });
+    if (tool === "sitemap") return res.json({ open: `https://${host}/sitemap.xml`, note: "Opens the commonly published sitemap location." });
+    if (tool === "headers" || tool === "ssl" || tool === "redirects" || tool === "metadata" || tool === "tech" || tool === "security") {
+      const u = new URL(q.includes("://") ? q : `https://${host}`);
+      if (!["http:", "https:"].includes(u.protocol)) throw new Error("Only HTTP/HTTPS URLs are supported.");
+      return res.json({ open: u.toString(), note: "For safety, this dashboard provides a link for manual review; it does not make server-side requests to arbitrary URLs." });
+    }
+    res.status(404).json({ error: "Unknown module." });
+  } catch (e) { res.status(400).json({ error: e.message || "Lookup failed." }); }
+});
+
+app.listen(PORT, "0.0.0.0", () => console.log(`NEXUS OSINT listening on port ${PORT}`));
